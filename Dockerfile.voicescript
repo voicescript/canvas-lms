@@ -1,0 +1,114 @@
+ARG RUBY=2.7
+
+FROM instructure/ruby-passenger:$RUBY
+LABEL maintainer="VoiceScript"
+
+ARG POSTGRES_CLIENT=14
+ARG APP_USER=canvas
+ENV APP_HOME /var/canvas
+ENV RAILS_ENV production
+ENV NGINX_MAX_UPLOAD_SIZE 10g
+ENV LANG en_US.UTF-8
+ENV LANGUAGE en_US.UTF-8
+ENV LC_CTYPE en_US.UTF-8
+ENV LC_ALL en_US.UTF-8
+ARG CANVAS_RAILS=6.1
+ENV CANVAS_RAILS=${CANVAS_RAILS}
+
+ENV YARN_VERSION 1.19.1-1
+# Documentation in https://github.com/instructure/canvas-lms/wiki/Production-Start now recommends using bundler 2.2.19
+ENV BUNDLER_VERSION 2.2.19
+ENV GEM_HOME /${APP_HOME}/.gem/$RUBY
+ENV PATH $GEM_HOME/bin:$PATH
+ENV BUNDLE_APP_CONFIG /${APP_HOME}/.bundle
+
+WORKDIR $APP_HOME
+
+
+USER ${APP_USER}
+
+COPY . ${APP_HOME}
+
+USER root
+
+RUN adduser --disabled-password --gecos canvas canvas
+
+# This step allows ${APP_USER} to write files to a host-mounted volume with the correct user permissions.
+# Without it, some linux distributions are unable to write at all to the host mounted volume.
+RUN if [ -n "$USER_ID" ]; then usermod -u "${USER_ID}" ${APP_USER} \
+        && chown --from=9999 ${APP_USER} /usr/src/nginx ${APP_HOME} -R; fi
+
+ARG USER_ID
+
+RUN curl -sL https://deb.nodesource.com/setup_16.x | bash - \
+  && curl -sS https://dl.yarnpkg.com/debian/pubkey.gpg | apt-key add - \
+  && echo "deb https://dl.yarnpkg.com/debian/ stable main" > /etc/apt/sources.list.d/yarn.list \
+  && printf 'path-exclude /usr/share/doc/*\npath-exclude /usr/share/man/*' > /etc/dpkg/dpkg.cfg.d/01_nodoc \
+  && echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list \
+  && curl -sS https://www.postgresql.org/media/keys/ACCC4CF8.asc | apt-key add - \
+  && apt-get update -qq \
+  && apt-get install -qqy --no-install-recommends \
+       nodejs \
+       yarn="$YARN_VERSION" \
+       libxmlsec1-dev \
+       python3-lxml \
+       python-is-python3 \
+       python-pygments \
+       libicu-dev \
+       libidn11-dev \
+       parallel \
+       postgresql-client-$POSTGRES_CLIENT \
+       unzip \
+       pbzip2 \
+       wget \
+       git \
+       build-essential \
+       tzdata \
+       locales \
+  && rm -rf /var/lib/apt/lists/* \
+  && mkdir -p /home/${APP_USER}/.gem/ruby/$RUBY_MAJOR.0
+
+
+RUN if [ -e /var/lib/gems/$RUBY_MAJOR.0/gems/bundler-* ]; then BUNDLER_INSTALL="-i /var/lib/gems/$RUBY_MAJOR.0"; fi \
+  && gem uninstall --all --ignore-dependencies --force $BUNDLER_INSTALL bundler \
+  && gem install bundler --no-document -v $BUNDLER_VERSION \
+  && find $GEM_HOME ! -user ${APP_USER} | xargs chown ${APP_USER}:${APP_USER}
+RUN npm install -g npm@latest && npm cache clean --force
+
+# Set timezone inside the container
+RUN echo "America/New_York" > /etc/timezone && \
+    dpkg-reconfigure -f noninteractive tzdata && \
+    echo "en_US.UTF-8 UTF-8" >> /etc/locale.gen && \
+    locale-gen en_US.utf8 && \
+    update-locale LANG=en_US.UTF-8
+
+# Allow the ${APP_USER} user to access the APP_HOME folder during installation
+RUN chown ${APP_USER}:${APP_USER} -R ${APP_HOME}
+
+USER ${APP_USER}
+
+RUN mkdir -p ${APP_HOME}/vendor && \
+    cd ${APP_HOME}/vendor && \
+    git clone https://github.com/instructure/QTIMigrationTool.git QTIMigrationTool && \
+    cd QTIMigrationTool && \
+    chmod +x migrate.py
+
+
+ENV RAILS_LOG_TO_STDOUT=true
+ENV CANVAS_LMS_STATS_COLLECTION=opt_out
+ENV LANG=en_US.UTF-8
+ENV LANGUAGE=en_US.UTF-8
+ENV LC_ALL=en_US.UTF-8
+ENV LC_CTYPE=en_US.UTF-8
+
+RUN touch ${APP_HOME}/log/production.log
+
+# We cannot use the deployment setting here because Instructure has not checked in a Gemfile.lock
+
+# RUN bundle _${BUNDLER_VERSION}_ config set deployment 'true'
+# RUN bundle _${BUNDLER_VERSION}_ config set without 'development test pulsar'
+
+# Unfortunately the dress_code gem seems to be required for assets to be compiled
+RUN bundle _${BUNDLER_VERSION}_ config set without 'pulsar'
+
+RUN bundle _${BUNDLER_VERSION}_ install

@@ -1,0 +1,10 @@
+# do not create a queue: section for your test environment
+
+production:
+  adapter: postgresql
+  encoding: utf8
+  database: <%= ENV['DB_DATABASE'] %>
+  host: <%= ENV['DB_HOST'] %>
+  username: <%= ENV['DB_USERNAME'] %>
+  password: <%= ENV['DB_PASSWORD'] %>
+  timeout: 5000

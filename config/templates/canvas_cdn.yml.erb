@@ -1,0 +1,15 @@
+defaults: &defaults
+  host: <%= ENV['CDN_HOST'] %>
+  region: <%= ENV['S3_REGION'] %>
+  bucket: <%= ENV['S3_CDN_BUCKET_NAME'] %>
+  aws_access_key_id: <%= ENV['S3_ACCESS_KEY_ID'] %>
+  aws_secret_access_key: <%= ENV['S3_SECRET_ACCESS_KEY'] %>
+
+development:
+  <<: *defaults
+
+test:
+  <<: *defaults
+
+production:
+  <<: *defaults

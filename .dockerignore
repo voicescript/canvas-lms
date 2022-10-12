@@ -36,5 +36,13 @@ vendor/bundle/
 vendor/*/.git
 Dockerfile
 *.Dockerfile
+Dockerfile*
+docker-compose/
+docker-compose*.yml
 Gemfile.lock
 mkmf.log
+Jenkinsfile*
+.github
+.storybook
+.vscode
+hooks/
